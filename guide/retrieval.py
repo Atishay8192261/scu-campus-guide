@@ -263,7 +263,13 @@ class Retriever:
                     source = await self.fetch(url, fresh)
                     trace("source_fetched", url=source.url, characters=len(source.text))
                     return source
-            except (UnsafeSource, httpx.HTTPError, TimeoutError, ValueError, ProviderError) as error:
+            except (
+                UnsafeSource,
+                httpx.HTTPError,
+                TimeoutError,
+                ValueError,
+                ProviderError,
+            ) as error:
                 trace("source_error", url=url, reason=type(error).__name__)
                 return None
 
