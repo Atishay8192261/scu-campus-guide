@@ -44,7 +44,7 @@ This is a bounded research agent, not an unrestricted browser automation system.
 
 PostgreSQL provides a GIN full-text index, current source documents, changed-content versions, anonymous answer outcomes and helpfulness votes. The initial migration contains immutable DDL rather than importing mutable runtime models. New schema changes need new migrations. Each asynchronous transaction uses its own SQLAlchemy session.
 
-Budget reservation inserts or locks a single budget row with `FOR UPDATE`. Reserving before an API request prevents concurrent requests from overspending the configured reservation cap. Reservations persist through restarts and failed/canceled requests. They are conservative usage allowances, not a billing reconciliation system. A fixed three-minute call reserves audio separately from model and search requests. The initial $8 cap is not automatically replenished monthly.
+Budget reservation inserts or locks budget rows with `FOR UPDATE`. Voice calls debit both the global allowance and a persistent per-conversation allowance in one transaction, with deterministic lock ordering. Either limit failing rolls back both debits. The per-conversation maximum is $0.60 including audio, model and search reservations. Reserving before an API request prevents concurrent requests from overspending the configured reservation cap. Reservations persist through restarts and failed/canceled requests. They are conservative usage allowances, not a billing reconciliation system. A fixed three-minute call reserves audio separately from model and search requests. The initial $8 cap is not automatically replenished monthly.
 
 ## Local networking and production boundaries
 

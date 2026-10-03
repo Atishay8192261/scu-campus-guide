@@ -108,7 +108,7 @@ def create_app(settings=None):
         return JSONResponse(
             {
                 "code": "local_budget_exhausted",
-                "detail": "This app's local spending allowance is fully reserved. This does not indicate your provider balance. The operator must review usage before enabling more calls.",
+                "detail": "This request exceeds the app's local or per-conversation spending allowance. This does not indicate your provider balance. The operator must review usage before enabling more calls.",
             },
             402,
         )

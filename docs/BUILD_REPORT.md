@@ -7,7 +7,7 @@ This report distinguishes implementation tests from live account behavior. Publi
 - Python 3.12 locked dependency installation on this Mac. The current cryptography release was built successfully using a current Rust compiler; the vulnerable compatibility wheel was removed.
 - Fresh PostgreSQL schema migration; full-text retrieval and changed-content version persistence.
 - Concurrent budget reservation: twenty simultaneous ten-cent attempts with a fifty-cent cap admitted exactly five. Reservations persist and exact-cap admission behaves correctly.
-- 72 automated tests passed locally, including credential precedence, provider-specific audio reservation floors and local-budget rejection before voice negotiation.
+- 74 automated tests passed locally, including credential precedence, provider-specific audio reservation floors and local-budget rejection before voice negotiation.
 - Policy routing enforcement, exact source quotations, unsupported-answer rejection, cache expiration, refresh for time-sensitive questions, bounded live-search fallback, provider response contract validation, body/origin/Host restrictions, missing-key rejection, feedback and research cancellation tests.
 - All fourteen configured public SCU pages fetched successfully. The extractor was corrected after real SCU pages showed useful content outside `<main>`. Dynamic hours/calendar content and map visuals may not be available as readable evidence.
 - Browser test with actual Chromium microphone tracks and actual WebRTC offer/answer and returned audio. Captions, source links, mute and token-protected hang-up passed. Speech recognition, research and synthesized audio were deterministic fixtures, so this is **transport integration verification, not a live AI call**.
@@ -40,3 +40,7 @@ Cryptography findings were resolved by upgrading to 50.0.2. The remaining NLTK a
 - Production identity/privacy review, remote audio networking, shared admission across workers, reliable operational monitoring and invoice reconciliation.
 
 The MVP can be inspected and its local enforcement tested now. It is not ready for public campus deployment.
+
+## Balance reconciliation and conversation limit
+
+The user supplied an API-console screenshot showing $0.05 spend and $4.95 credit remaining. A new local allowance was capped at that reported remaining balance; the original $4.96 reservation ledger was retained and an ignored local audit record captures the reconciliation. A real OpenAI browser voice test then succeeded again with recognized speech, cited answer, received audio and no page errors. Each new voice conversation now has a persistent, transactionally enforced $0.60 maximum reservation allowance, including speech and research/search. Concurrent-cap and rollback tests passed. This is conservative admission accounting, not an exact provider-charge guarantee; provider billing reconciliation remains a release gate.

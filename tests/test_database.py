@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import func, select
 
 from guide.contracts import Answer, AnswerStatus, Selection
-from guide.database import BudgetExhausted, DocumentVersion
+from guide.database import BudgetExhausted, ConversationStore, DocumentVersion
 
 
 @pytest.mark.asyncio
@@ -27,6 +27,33 @@ async def test_exact_cap_and_independent_budget(store):
     with pytest.raises(BudgetExhausted):
         await store.reserve("first", 0.000001, 1, "test")
     await store.reserve("second", 1, 1, "test")
+
+
+async def test_conversation_cap_is_atomic_under_concurrent_requests(store):
+    conversation = ConversationStore(store, "conversation-a", 0.60)
+    await conversation.reserve("global", 0.20, 5, "voice-call")
+
+    async def attempt():
+        try:
+            await conversation.reserve("global", 0.10, 5, "research")
+            return True
+        except BudgetExhausted:
+            return False
+
+    assert sum(await asyncio.gather(*(attempt() for _ in range(10)))) == 4
+    assert (await store.metrics("conversation-a"))["reserved_usd"] == 0.60
+    assert (await store.metrics("global"))["reserved_usd"] == 0.60
+    other = ConversationStore(store, "conversation-b", 0.60)
+    await other.reserve("global", 0.20, 5, "voice-call")
+    assert (await store.metrics("global"))["reserved_usd"] == 0.80
+
+
+async def test_global_rejection_rolls_back_conversation_reservation(store):
+    await store.reserve("global", 0.50, 0.50, "test")
+    conversation = ConversationStore(store, "conversation-a", 0.60)
+    with pytest.raises(BudgetExhausted):
+        await conversation.reserve("global", 0.20, 0.50, "voice-call")
+    assert (await store.metrics("conversation-a"))["reserved_usd"] == 0
 
 
 @pytest.mark.asyncio

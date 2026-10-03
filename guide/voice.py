@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import copy
 import secrets
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
+from guide.database import ConversationStore
 from guide.research import PROMPTS
 
 
@@ -135,6 +137,7 @@ class Call:
     token: str
     worker: asyncio.Task | None = None
     task: PipelineTask | None = None
+    registry: object | None = None
 
 
 class Calls:
@@ -149,7 +152,13 @@ class Calls:
             if len(self.active) >= self.registry.settings.max_concurrent_calls:
                 raise RuntimeError("All call slots are busy")
             settings = self.registry.settings
-            await self.registry.store.reserve(
+            registry = copy.copy(self.registry)
+            registry.store = ConversationStore(
+                self.registry.store,
+                "conversation-" + secrets.token_hex(16),
+                settings.conversation_budget_usd,
+            )
+            await registry.store.reserve(
                 settings.budget_id,
                 self.registry.voice_reservation(offer.selection),
                 settings.budget_usd,
@@ -158,7 +167,7 @@ class Calls:
             connection = SmallWebRTCConnection(
                 ice_servers=settings.ice_servers, connection_timeout_secs=15
             )
-            call = Call(connection, secrets.token_urlsafe(32))
+            call = Call(connection, secrets.token_urlsafe(32), registry=registry)
             # Admission includes pending SDP negotiations, not just connected calls.
             identity = secrets.token_urlsafe(16)
             self.active[identity] = call
@@ -184,7 +193,7 @@ class Calls:
                     call.connection, TransportParams(audio_in_enabled=True, audio_out_enabled=True)
                 )
                 research = VoiceResearch(
-                    self.registry.research(selection),
+                    call.registry.research(selection),
                     self.registry.store,
                     selection,
                     call.connection,

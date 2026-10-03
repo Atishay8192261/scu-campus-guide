@@ -81,6 +81,19 @@ class BudgetExhausted(Exception):
     pass
 
 
+class ConversationStore:
+    def __init__(self, store, identity, cap):
+        self.store, self.identity, self.cap = store, identity, cap
+
+    def __getattr__(self, name):
+        return getattr(self.store, name)
+
+    async def reserve(self, budget_id, amount, cap, purpose):
+        return await self.store.reserve(
+            budget_id, amount, cap, purpose, scope=(self.identity, self.cap)
+        )
+
+
 class Store:
     def __init__(self, url: str):
         self.engine = create_async_engine(url, pool_size=5, max_overflow=5, pool_pre_ping=True)
@@ -89,20 +102,37 @@ class Store:
     async def close(self):
         await self.engine.dispose()
 
-    async def reserve(self, budget_id: str, amount: float, cap: float, purpose: str) -> str:
+    async def reserve(
+        self,
+        budget_id: str,
+        amount: float,
+        cap: float,
+        purpose: str,
+        scope: tuple[str, float] | None = None,
+    ) -> str:
         value = Decimal(str(amount))
-        if not value.is_finite() or value <= 0 or not Decimal(str(cap)).is_finite() or cap <= 0:
+        limits = {budget_id: Decimal(str(cap))}
+        if scope:
+            if scope[0] == budget_id:
+                raise ValueError("Conversation and global budgets must be distinct")
+            limits[scope[0]] = Decimal(str(scope[1]))
+        if (
+            not value.is_finite()
+            or value <= 0
+            or any(not limit.is_finite() or limit <= 0 for limit in limits.values())
+        ):
             raise ValueError("Reservation amounts and caps must be positive and finite")
         async with self.sessions.begin() as session:
-            await session.execute(
-                insert(Budget).values(id=budget_id, reserved=0).on_conflict_do_nothing()
-            )
-            budget = await session.scalar(
-                select(Budget).where(Budget.id == budget_id).with_for_update()
-            )
-            if budget.reserved + value > Decimal(str(cap)):
-                raise BudgetExhausted
-            budget.reserved += value
+            for identity, limit in sorted(limits.items()):
+                await session.execute(
+                    insert(Budget).values(id=identity, reserved=0).on_conflict_do_nothing()
+                )
+                budget = await session.scalar(
+                    select(Budget).where(Budget.id == identity).with_for_update()
+                )
+                if budget.reserved + value > limit:
+                    raise BudgetExhausted
+                budget.reserved += value
             reservation_id = str(uuid4())
             session.add(
                 Reservation(id=reservation_id, budget_id=budget_id, amount=value, purpose=purpose)
