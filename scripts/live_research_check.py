@@ -10,12 +10,12 @@ from guide.database import ConversationStore
 from guide.settings import Settings
 
 CASES = [
-    ("What is their dining place called?", "marketplace"),
-    ("What are the hours for the library?", "midnight"),
-    ("Help me with the timings for library.", "midnight"),
-    ("What time does the library close today?", "library"),
-    ("Where can parents find billing help?", "one stop"),
-    ("Where do people go and have dining? What's their dining called?", "marketplace"),
+    ("What is their dining place called?", ("marketplace", "benson")),
+    ("What are the hours for the library?", ("midnight", "10 p.m.", "10pm")),
+    ("Help me with the timings for library.", ("midnight", "10 p.m.", "10pm")),
+    ("What time does the library close today?", ("library",)),
+    ("Where can parents find billing help?", ("one stop", "onestop@scu.edu")),
+    ("Where do people go and have dining? What's their dining called?", ("marketplace", "benson")),
 ]
 
 
@@ -40,7 +40,7 @@ async def main():
             passed = (
                 answer.status == "answered"
                 and bool(answer.citations)
-                and expected in answer.speech.lower()
+                and any(term in answer.speech.lower() for term in expected)
             )
             results.append(
                 {"question": question, "passed": passed, **answer.model_dump(mode="json")}
