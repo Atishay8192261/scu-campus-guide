@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     budget_usd: float = Field(default=8, gt=0, le=50)
     max_call_seconds: int = Field(default=180, ge=30, le=180)
     max_concurrent_calls: int = Field(default=2, ge=1, le=10)
+    turn_pause_seconds: float = Field(default=1.5, ge=1.0, le=5.0)
     idle_seconds: int = Field(default=30, ge=10, le=120)
     research_seconds: int = Field(default=30, ge=5, le=45)
     provider_timeout_seconds: int = Field(default=10, ge=1, le=15)

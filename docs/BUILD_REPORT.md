@@ -54,3 +54,12 @@ The final six-question live backend check passed all six cases with verified cit
 Retrieval now prioritizes matching document titles ahead of repetitive body text, with a regression test showing a Dining Services page outranks a repeated-event schedule. Source fetch successes and failure types are captured in the request-scoped telemetry.
 
 The live smoke check accepts official building/venue naming variants (Benson or Marketplace) and One Stop’s public email as an actionable billing response. Its marker checks establish response coverage, not independent semantic correctness; quotations, date checks and human review remain necessary.
+
+
+### Conversation repair — October 3, 2026
+
+The two reported calls showed fragmented questions, an erroneous crisis route for “Help me…”, interrupted housing requests, and generic clarification that lost the housing topic. The previous pipeline treated every finalized STT segment as a completed user turn after 0.6 seconds of VAD silence.
+
+The updated pipeline uses the bundled local semantic endpoint detector, buffers final transcript segments, waits at least 1.5 seconds after speech pauses, allows extra time for incomplete phrases, and retains user context when research is interrupted. Supported overviews can use four independently verified findings and offer one relevant follow-up question. Public housing overview/application sources are indexed. The old `/living/about-us/` URL currently redirects through SCU's redirect service to a 404, so it was removed; housing office details were verified from the official Housing 101 page instead.
+
+Verified locally: 92 tests, lint/format checks, fixture WebRTC browser test, and a paid live OpenAI/WebRTC housing utterance containing a one-second mid-question pause. The paused utterance produced exactly one joined transcript and one cited answer with a follow-up; browser errors were empty. A live contextual “Help me find the right office” follow-up returned the housing office location and phone from Housing 101. Ambiguous “Help me…” now clarified rather than emitting a crisis response in the live check. These targeted results do not establish universal conversational quality. Further human calls and adversarial safety evaluation remain necessary. Alternative providers remain unverified.

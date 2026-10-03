@@ -1,11 +1,15 @@
 import asyncio
 import contextlib
 import copy
+import logging
+import re
 import secrets
+import time
 from dataclasses import dataclass
 
 import aiohttp
 from aioice.ice import get_host_addresses
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
@@ -14,6 +18,7 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
+    UserStoppedSpeakingFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
@@ -25,9 +30,16 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_processor import UserTurnProcessor
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from guide.database import ConversationStore
 from guide.research import PROMPTS
+from guide.settings import Settings
+from guide.telemetry import call_event
+
+logger = logging.getLogger(__name__)
 
 
 def local_peer_sdp(sdp: str) -> str:
@@ -47,8 +59,13 @@ def local_peer_sdp(sdp: str) -> str:
     return "\r\n".join(lines) + "\r\n"
 
 
+class PrivateSmartTurn(LocalSmartTurnAnalyzerV3):
+    def _write_audio_to_wav(self, *args, **kwargs):
+        pass
+
+
 class VoiceResearch(FrameProcessor):
-    def __init__(self, research, store, selection, connection):
+    def __init__(self, research, store, selection, connection, *, pause_seconds=1.5):
         super().__init__()
         self.research, self.store, self.selection, self.connection = (
             research,
@@ -57,6 +74,11 @@ class VoiceResearch(FrameProcessor):
             connection,
         )
         self.pending = None
+        self.commit_task = None
+        self.speaking = False
+        self.endpoint = False
+        self.pause_seconds = pause_seconds
+        self.last_stop = 0.0
         self.history = []
         self.fragments = []
         self.turns = 0
@@ -73,7 +95,52 @@ class VoiceResearch(FrameProcessor):
                 await self.pending
             self.pending = None
 
+    async def cancel_commit(self):
+        if self.commit_task:
+            self.commit_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.commit_task
+            self.commit_task = None
+
+    async def diagnostic(self, stage, **fields):
+        settings = getattr(self.research, "settings", None)
+        if isinstance(settings, Settings):
+            try:
+                await call_event(
+                    settings, getattr(self.research.store, "identity", None), stage, **fields
+                )
+            except OSError:
+                logger.exception("Call telemetry could not be written")
+
+    async def schedule_commit(self):
+        await self.cancel_commit()
+        if self.endpoint and self.fragments and not self.speaking:
+            self.commit_task = asyncio.create_task(self.commit())
+
+    async def commit(self):
+        question = " ".join(self.fragments).strip()
+        incomplete = len(question.split()) < 3 or re.search(
+            r"\b(the|a|an|about|with|for|and|or|all the)\W*$", question, re.I
+        )
+        delay = max(self.pause_seconds, 3.5 if incomplete else 0)
+        await asyncio.sleep(max(0.35, delay - (time.monotonic() - self.last_stop)))
+        if self.speaking or not self.endpoint or not self.fragments:
+            return
+        self.fragments.clear()
+        self.endpoint = False
+        self.commit_task = None
+        if self.turns >= 8:
+            self.event(
+                "error", message="This call has reached its eight-question limit. Please hang up."
+            )
+            return
+        await self.interrupt()
+        self.turns += 1
+        await self.diagnostic("turn_committed", question=question, turn=self.turns)
+        self.pending = asyncio.create_task(self.respond(question, self.generation))
+
     async def cleanup(self):
+        await self.cancel_commit()
         await self.interrupt()
         self.history.clear()
         await super().cleanup()
@@ -81,50 +148,56 @@ class VoiceResearch(FrameProcessor):
     async def respond(self, question, generation):
         try:
             self.event("thinking", transcript=question)
-            answer = await self.research.ask(question, self.history)
+            context = list(self.history)
+            self.history = (self.history + [{"role": "user", "content": question}])[-6:]
+            answer = await self.research.ask(question, context)
             if generation != self.generation:
                 return
             await self.store.record(answer, self.selection)
             self.history = (
                 self.history
                 + [
-                    {"role": "user", "content": question},
                     {"role": "assistant", "content": answer.speech},
                 ]
             )[-6:]
             self.event("answer", answer=answer.model_dump(mode="json"))
+            await self.diagnostic("response_queued", request_id=str(answer.id))
             await self.push_frame(TTSSpeakFrame(answer.speech))
         except asyncio.CancelledError:
             raise
         except Exception:
+            logger.exception("Voice answer failed")
             self.event("error", message="The answer could not be completed. Please try again.")
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, VADUserStartedSpeakingFrame):
+            self.speaking = True
+            self.endpoint = False
+            await self.cancel_commit()
             await self.interrupt()
             await self.push_frame(InterruptionFrame())
+            await self.diagnostic("speech_started")
             self.event("listening")
+        elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            self.speaking = False
+            self.last_stop = time.monotonic()
+            await self.diagnostic("speech_paused")
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            self.endpoint = True
+            await self.diagnostic("endpoint_detected")
+            await self.schedule_commit()
         elif isinstance(frame, TranscriptionFrame):
             if not frame.text.strip():
                 return
-            self.fragments.append(frame.text)
+            self.fragments.append(frame.text.strip())
+            await self.diagnostic("transcript_fragment", text=frame.text)
             if sum(map(len, self.fragments)) > 1000:
                 self.fragments.clear()
+                await self.cancel_commit()
                 self.event("error", message="Please ask a shorter question.")
                 return
-            if frame.finalized:
-                question = " ".join(self.fragments).strip()
-                self.fragments.clear()
-                if self.turns >= 8:
-                    self.event(
-                        "error",
-                        message="This call has reached its eight-question limit. Please hang up.",
-                    )
-                    return
-                await self.interrupt()
-                self.turns += 1
-                self.pending = asyncio.create_task(self.respond(question, self.generation))
+            await self.schedule_commit()
             return
         elif isinstance(frame, ErrorFrame):
             self.event("error", message="A speech provider failed. Please hang up and try again.")
@@ -197,14 +270,25 @@ class Calls:
                     self.registry.store,
                     selection,
                     call.connection,
+                    pause_seconds=self.registry.settings.turn_pause_seconds,
                 )
                 pipeline = Pipeline(
                     [
                         transport.input(),
                         VADProcessor(
-                            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.6))
+                            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
                         ),
                         stt,
+                        UserTurnProcessor(
+                            user_turn_strategies=UserTurnStrategies(
+                                stop=[
+                                    TurnAnalyzerUserTurnStopStrategy(
+                                        turn_analyzer=PrivateSmartTurn()
+                                    )
+                                ]
+                            ),
+                            user_turn_stop_timeout=6.0,
+                        ),
                         research,
                         tts,
                         transport.output(),

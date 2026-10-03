@@ -63,6 +63,11 @@ async def record(settings, question, answer, stages, providers=None, conversatio
         "providers": providers or {},
         "stages": stages,
     }
+    payload = redact(settings, payload)
+    await asyncio.to_thread(write_record, ROOT / ".local-telemetry/questions.jsonl", payload)
+
+
+def redact(settings, payload):
     encoded = json.dumps(payload, ensure_ascii=False)
     for provider in ("openai", "gemini", "anthropic", "deepgram", "elevenlabs", "tavily"):
         key = settings.key(provider)
@@ -70,4 +75,19 @@ async def record(settings, question, answer, stages, providers=None, conversatio
             encoded = encoded.replace(key, "[REDACTED]")
     encoded = re.sub(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}", "[REDACTED]", encoded)
     payload = json.loads(encoded)
-    await asyncio.to_thread(write_record, ROOT / ".local-telemetry/questions.jsonl", payload)
+    return payload
+
+
+async def call_event(settings, conversation_id, stage, **fields):
+    if not settings.debug_telemetry:
+        return
+    payload = {
+        "schema_version": 1,
+        "at": datetime.now(UTC).isoformat(),
+        "conversation_id": conversation_id,
+        "stage": stage,
+        **fields,
+    }
+    await asyncio.to_thread(
+        write_record, ROOT / ".local-telemetry/calls.jsonl", redact(settings, payload)
+    )

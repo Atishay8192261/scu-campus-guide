@@ -3,6 +3,7 @@ import audioop
 import io
 import json
 import os
+import re
 import tempfile
 import wave
 from pathlib import Path
@@ -32,37 +33,31 @@ async def main():
             settings.budget_id, 0.03, settings.budget_usd, "live-test-audio"
         )
         async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={"Authorization": "Bearer " + settings.key("openai")},
-                json={
-                    "model": MODELS["openai"]["tts"],
-                    "voice": MODELS["openai"]["voice"],
-                    "input": os.environ.get(
-                        "VOICE_TEST_QUESTION",
-                        "How can parents find billing and financial aid information at Santa Clara University?",
-                    ),
-                    "response_format": "wav",
-                },
-            )
-            if response.status_code != 200:
-                print(
-                    json.dumps(
-                        {
-                            "audio_provider_status": response.status_code,
-                            "code": response.json().get("error", {}).get("code"),
-                        }
-                    )
+            parts = os.environ.get(
+                "VOICE_TEST_QUESTION",
+                "How can parents find billing and financial aid information at Santa Clara University?",
+            ).split("|")
+            pcm_parts = []
+            for part in parts:
+                response = await client.post(
+                    "https://api.openai.com/v1/audio/speech",
+                    headers={"Authorization": "Bearer " + settings.key("openai")},
+                    json={
+                        "model": MODELS["openai"]["tts"],
+                        "voice": MODELS["openai"]["voice"],
+                        "input": part,
+                        "response_format": "wav",
+                    },
                 )
-                raise RuntimeError("Live test speech generation failed")
-        with wave.open(io.BytesIO(response.content), "rb") as source:
-            pcm = source.readframes(source.getnframes())
-            rate = source.getframerate()
-            channels = source.getnchannels()
-            width = source.getsampwidth()
-        if channels != 1 or width != 2:
-            raise RuntimeError("Unexpected test audio format")
-        pcm = audioop.ratecv(pcm, 2, 1, rate, 48000, None)[0]
+                response.raise_for_status()
+                with wave.open(io.BytesIO(response.content), "rb") as source:
+                    if source.getnchannels() != 1 or source.getsampwidth() != 2:
+                        raise RuntimeError("Unexpected test audio format")
+                    raw = source.readframes(source.getnframes())
+                    pcm_parts.append(
+                        audioop.ratecv(raw, 2, 1, source.getframerate(), 48000, None)[0]
+                    )
+            pcm = (b"\0" * 96000).join(pcm_parts)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "question.wav"
             with wave.open(str(path), "wb") as audio:
@@ -99,6 +94,16 @@ async def main():
                         ),
                         "browser_errors": errors,
                     }
+                    if len(parts) > 1:
+                        if await page.locator(".exchange").count() != 1:
+                            raise RuntimeError("A thinking pause split the caller's question")
+                        for part in parts:
+                            fragment = " ".join(re.findall(r"[a-z]+", part.lower()))
+                            transcript = " ".join(
+                                re.findall(r"[a-z]+", report["transcript"].lower())
+                            )
+                            if fragment not in transcript:
+                                raise RuntimeError("A speech segment was lost")
                     if not report["source_links"]:
                         raise RuntimeError("Live answer did not contain verified citations")
                     print(json.dumps(report, indent=2))

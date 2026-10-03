@@ -60,3 +60,89 @@ def test_local_mdns_candidate_rewrite_preserves_port_and_other_sdp(monkeypatch):
     assert "192.168.1.2 5555" in output
     assert "host.local" not in output
     assert output.endswith("a=mid:0\r\n")
+
+
+async def test_thinking_pause_does_not_split_a_question():
+    from pipecat.frames.frames import (
+        TranscriptionFrame,
+        UserStoppedSpeakingFrame,
+        VADUserStartedSpeakingFrame,
+        VADUserStoppedSpeakingFrame,
+    )
+    from pipecat.processors.frame_processor import FrameDirection
+
+    research = AsyncMock()
+    research.ask.return_value = Answer(status=AnswerStatus.ANSWERED, speech="Housing overview.")
+    voice = VoiceResearch(research, AsyncMock(), Selection(), MagicMock(), pause_seconds=1.1)
+    voice.push_frame = AsyncMock()
+    direction = FrameDirection.DOWNSTREAM
+    await voice.process_frame(VADUserStartedSpeakingFrame(), direction)
+    await voice.process_frame(VADUserStoppedSpeakingFrame(), direction)
+    await voice.process_frame(
+        TranscriptionFrame("Tell me about the", "", "", finalized=True), direction
+    )
+    await voice.process_frame(UserStoppedSpeakingFrame(), direction)
+    await asyncio.sleep(1)
+    research.ask.assert_not_awaited()
+    await voice.process_frame(VADUserStartedSpeakingFrame(), direction)
+    await voice.process_frame(VADUserStoppedSpeakingFrame(), direction)
+    await voice.process_frame(
+        TranscriptionFrame("housing options for undergrads.", "", "", finalized=True), direction
+    )
+    await voice.process_frame(UserStoppedSpeakingFrame(), direction)
+    await asyncio.sleep(1.3)
+    research.ask.assert_awaited_once_with("Tell me about the housing options for undergrads.", [])
+    assert voice.turns == 1
+    await voice.cleanup()
+
+
+async def test_final_transcript_arriving_while_user_speaks_cannot_answer():
+    from pipecat.frames.frames import (
+        TranscriptionFrame,
+        UserStoppedSpeakingFrame,
+        VADUserStartedSpeakingFrame,
+    )
+    from pipecat.processors.frame_processor import FrameDirection
+
+    research = AsyncMock()
+    voice = VoiceResearch(research, AsyncMock(), Selection(), MagicMock())
+    voice.push_frame = AsyncMock()
+    await voice.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    await voice.process_frame(
+        TranscriptionFrame("Help me with housing", "", "", finalized=True),
+        FrameDirection.DOWNSTREAM,
+    )
+    await voice.process_frame(UserStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    assert voice.commit_task is None
+    research.ask.assert_not_called()
+    assert voice.fragments == ["Help me with housing"]
+    await voice.cleanup()
+
+
+async def test_interrupted_question_remains_available_to_follow_up():
+    entered = asyncio.Event()
+
+    async def ask(*args):
+        entered.set()
+        await asyncio.sleep(60)
+
+    research = AsyncMock()
+    research.ask.side_effect = ask
+    voice = VoiceResearch(research, AsyncMock(), Selection(), MagicMock())
+    voice.push_frame = AsyncMock()
+    voice.pending = asyncio.create_task(
+        voice.respond("Undergraduate housing options?", voice.generation)
+    )
+    await entered.wait()
+    await voice.interrupt()
+    assert voice.history == [{"role": "user", "content": "Undergraduate housing options?"}]
+    await voice.cleanup()
+
+
+def test_smart_turn_never_records_audio(tmp_path, monkeypatch):
+    from guide.voice import PrivateSmartTurn
+
+    monkeypatch.chdir(tmp_path)
+    analyzer = PrivateSmartTurn.__new__(PrivateSmartTurn)
+    analyzer._write_audio_to_wav(None)
+    assert not list(tmp_path.iterdir())

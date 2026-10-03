@@ -6,7 +6,15 @@ import time
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from guide.contracts import Answer, AnswerStatus, Citation, Decision, Draft, Verification
+from guide.contracts import (
+    Answer,
+    AnswerStatus,
+    Citation,
+    Clarification,
+    Decision,
+    Draft,
+    Verification,
+)
 from guide.database import BudgetExhausted
 from guide.providers.base import ProviderError
 from guide.settings import ROOT
@@ -23,7 +31,12 @@ def normalize(text: str) -> str:
 def validate_findings(draft: Draft, sources: list) -> list[Citation]:
     by_id = {source.id: source for source in sources}
     citations = []
-    if draft.next_step:
+    if draft.next_step and (
+        not re.fullmatch(
+            r"(?:Would|Do|Are|Which|What|Is|Should|Can|Could|Did|How)\b[^.!\n]*\?", draft.next_step
+        )
+        or re.search(r"https?://|@|\d", draft.next_step)
+    ):
         raise ProviderError("Uncited next step was rejected")
     if draft.status in {"answered", "conflict"} and not draft.findings:
         raise ProviderError("Empty answer was rejected")
@@ -177,6 +190,11 @@ class Research:
                 "redirect": "redirect",
             }[route.action]
             text = PROMPTS[status]
+            if status == "clarify":
+                clarification = await self.model.generate(
+                    PROMPTS["clarification"], context, Clarification
+                )
+                text = clarification.question
             return Answer(status=AnswerStatus(status), speech=text or PROMPTS["clarify"])
         cached = await self.store.retrieve(route.query)
         trace("cache_lookup", urls=[s.url for s in cached])
@@ -235,6 +253,7 @@ class Research:
                         {
                             **context,
                             "finding": finding.model_dump(),
+                            "follow_up": candidate.next_step,
                             "source": {
                                 "title": by_id[finding.source_id].title,
                                 "url": by_id[finding.source_id].url,
@@ -278,8 +297,8 @@ class Research:
                 + speech
                 + " Please confirm with the responsible SCU office."
             )
-        else:
-            speech += " You can inspect the official sources in the call notes."
+        elif draft.next_step:
+            speech += " " + draft.next_step
         return Answer(
             status=AnswerStatus(draft.status),
             speech=speech,

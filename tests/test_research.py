@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from guide.contracts import Decision, Draft, Finding, Verification
+from guide.contracts import Clarification, Decision, Draft, Finding, Verification
 from guide.database import BudgetExhausted
 from guide.providers.base import ProviderError
 from guide.research import PROMPTS, Research, validate_findings
@@ -55,11 +55,18 @@ async def test_policy_actions_cannot_inject_speech(settings, source, action, sta
     r = research(
         settings,
         source,
-        [Decision(action=action, query="", response="", fresh=False)],
+        [Decision(action=action, query="", response="", fresh=False)]
+        + (
+            [Clarification(question="Which housing detail do you need?")]
+            if action == "clarify"
+            else []
+        ),
     )
     answer = await r.ask("untrusted question")
     assert answer.status.value == status
-    assert answer.speech == PROMPTS[status]
+    assert answer.speech == (
+        "Which housing detail do you need?" if action == "clarify" else PROMPTS[status]
+    )
     r.store.retrieve.assert_not_called()
     r.search.search.assert_not_called()
 
@@ -197,3 +204,24 @@ async def test_verification_never_receives_unrelated_evidence(settings, source):
     data = r.model.generate.call_args.args[1]
     assert "sources" not in data and "draft" not in data
     assert data["finding"]["quote"] == draft(source).findings[0].quote
+
+
+async def test_supported_answer_offers_relevant_follow_up(settings, source):
+    candidate = draft(source)
+    candidate.next_step = "Would you like help finding the right office?"
+    r = research(settings, source, [route(), candidate, Verification(supported=True, safe=True)])
+    answer = await r.ask("parent billing")
+    assert answer.speech.endswith(candidate.next_step)
+    assert "call notes" not in answer.speech
+    verification_data = r.model.generate.call_args_list[-1].args[1]
+    assert verification_data["follow_up"] == candidate.next_step
+
+
+@pytest.mark.parametrize(
+    "text", ["Contact housing@scu.edu?", "Would you call 123?", "Go to an office."]
+)
+def test_follow_up_cannot_smuggle_uncited_contact_or_instructions(source, text):
+    candidate = draft(source)
+    candidate.next_step = text
+    with pytest.raises(ProviderError):
+        validate_findings(candidate, [source])

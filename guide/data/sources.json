@@ -78,5 +78,15 @@
     "title": "Campus Cafes and Dining Venues",
     "url": "https://scudining.cafebonappetit.com/",
     "ttl_seconds": 300
+  },
+  {
+    "title": "Undergraduate Housing Options and Residential Learning Communities",
+    "url": "https://www.scu.edu/living/discover/",
+    "ttl_seconds": 86400
+  },
+  {
+    "title": "First Year Housing Options and Applications",
+    "url": "https://www.scu.edu/living/housingapplication/application/fyapplication/",
+    "ttl_seconds": 86400
   }
 ]

@@ -24,6 +24,10 @@ class Decision(Contract):
     fresh: bool
 
 
+class Clarification(Contract):
+    question: str = Field(min_length=8, max_length=180, pattern=r"\?$")
+
+
 class Finding(Contract):
     text: str = Field(min_length=1, max_length=250, pattern=r"[.!?]$")
     source_id: int = Field(ge=1)
@@ -32,7 +36,7 @@ class Finding(Contract):
 
 class Draft(Contract):
     status: Literal["answered", "conflict", "unavailable"]
-    findings: list[Finding] = Field(max_length=2)
+    findings: list[Finding] = Field(max_length=4)
     next_step: str = Field(max_length=250)
 
 
