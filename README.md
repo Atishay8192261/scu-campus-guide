@@ -8,7 +8,7 @@ Independent voice assistance for Santa Clara University public information. One 
 
 Use Python 3.12, uv, and PostgreSQL 14+. `uv sync --frozen` installs the locked dependencies. Intel Macs may need a current Rust toolchain to build cryptography, since its current macOS wheels are ARM-only. Pipecat is pinned to a tested version; an upgrade requires rerunning transport and speech adapter tests.
 
-Create a local `.env` from `.env.example`. Set `GUIDE_DATABASE_URL` to your own PostgreSQL database and add `OPENAI_API_KEY` locally. Never paste a key into chat or commit it. The app also reads inherited environment variables, which take precedence over `.env`; unset an old inherited key before replacing it in `.env`.
+Create a local `.env` from `.env.example`. Set `GUIDE_DATABASE_URL` to your own PostgreSQL database and add `OPENAI_API_KEY` locally. Never paste a key into chat or commit it. Nonempty provider keys in the project’s `.env` take precedence over inherited keys, so the funded project account can be selected explicitly. Other configuration keeps normal environment precedence. Restart the server after changing keys.
 
 For a reproducible database with Docker, generate a local password and start the database:
 

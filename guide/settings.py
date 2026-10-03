@@ -37,6 +37,19 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="TAVILY_API_KEY")
     elevenlabs_voice_id: str = Field(default="", validation_alias="ELEVENLABS_VOICE_ID")
 
+    @classmethod
+    def settings_customise_sources(
+        cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+    ):
+        def local_credentials():
+            return {
+                key: value
+                for key, value in dotenv_settings().items()
+                if value and (key.endswith("_API_KEY") or key == "ELEVENLABS_VOICE_ID")
+            }
+
+        return init_settings, local_credentials, env_settings, dotenv_settings, file_secret_settings
+
     @model_validator(mode="after")
     def require_postgres(self):
         if not self.database_url.startswith("postgresql+psycopg://"):
