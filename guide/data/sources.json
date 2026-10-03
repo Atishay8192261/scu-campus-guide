@@ -1,0 +1,16 @@
+[
+ {"title":"New Student and Parent Programs", "url":"https://www.scu.edu/csi/new-students/", "ttl_seconds":86400},
+ {"title":"One Stop Parent FAQs", "url":"https://www.scu.edu/onestop/parents/", "ttl_seconds":86400},
+ {"title":"Library Hours and Access", "url":"https://www.scu.edu/library/hours/", "ttl_seconds":300},
+ {"title":"Dining Services", "url":"https://www.scu.edu/auxiliary-services/dining-services/", "ttl_seconds":300},
+ {"title":"Undergraduate Academic Calendar", "url":"https://www.scu.edu/bulletin/undergraduate/academic-calendar.html", "ttl_seconds":0},
+ {"title":"Housing 101", "url":"https://www.scu.edu/living/learn-more/housing101/", "ttl_seconds":86400},
+ {"title":"Plan Your Campus Visit", "url":"https://www.scu.edu/admission/visits-events/campustours/planyourvisit/", "ttl_seconds":86400},
+ {"title":"Visitor Parking", "url":"https://www.scu.edu/parking-and-transportation-services/parking-services/visitor-parking/", "ttl_seconds":86400},
+ {"title":"Campus Map", "url":"https://www.scu.edu/parking-and-transportation-services/campus-map/", "ttl_seconds":86400},
+ {"title":"Welcome Weekend", "url":"https://www.scu.edu/csi/new-students/welcome-weekend/schedule/", "ttl_seconds":300},
+ {"title":"One Stop", "url":"https://www.scu.edu/onestop/", "ttl_seconds":86400},
+ {"title":"Accessible Education", "url":"https://www.scu.edu/oae/", "ttl_seconds":86400},
+ {"title":"Campus Safety", "url":"https://www.scu.edu/campus-safety/", "ttl_seconds":86400},
+ {"title":"Student Health", "url":"https://www.scu.edu/cowell/", "ttl_seconds":86400}
+]

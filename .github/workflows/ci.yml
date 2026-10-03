@@ -1,0 +1,40 @@
+name: Verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: scu_guide_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GUIDE_DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/scu_guide_test
+      TEST_DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/scu_guide_test
+      OPENAI_API_KEY: fixture-only-no-live-access
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run alembic upgrade head
+      - run: uv run ruff check guide tests scripts migrations
+      - run: uv run ruff format --check guide tests scripts migrations
+      - run: node --check web/app.js
+      - run: uv run pytest --cov=guide --cov-report=term-missing
+      - run: uv run python -m scripts.voice_e2e
+      - run: uv run pip-audit --local --ignore-vuln PYSEC-2026-3740

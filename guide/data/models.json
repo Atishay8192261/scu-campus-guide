@@ -1,0 +1,7 @@
+{
+  "openai": {"research": "gpt-4.1-mini", "stt": "gpt-4o-mini-transcribe", "tts": "gpt-4o-mini-tts", "voice": "alloy"},
+  "gemini": {"research": "gemini-2.5-flash"},
+  "anthropic": {"research": "claude-haiku-4-5-20251001"},
+  "deepgram": {"stt": "nova-3", "tts": "aura-2-asteria-en"},
+  "elevenlabs": {"tts": "eleven_flash_v2_5"}
+}
