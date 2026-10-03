@@ -75,6 +75,23 @@ async def test_version_and_full_text_retrieval(store):
     assert not await store.retrieve("SCU what are the")
 
 
+async def test_topic_title_outweighs_repetitive_event_boilerplate(store):
+    await store.save_source(
+        "https://www.scu.edu/event/",
+        "Welcome Weekend Schedule",
+        "dining hall breakfast lunch dinner " * 100,
+        300,
+    )
+    primary = await store.save_source(
+        "https://www.scu.edu/dining/",
+        "Dining Services",
+        "The Marketplace and Mission Bakery are dining venues in Benson Memorial Center.",
+        300,
+    )
+    found = await store.retrieve("SCU dining hall")
+    assert found[0].id == primary.id
+
+
 @pytest.mark.asyncio
 async def test_feedback_requires_real_answer_and_is_idempotent(store):
     answer = Answer(status=AnswerStatus.REDIRECT, speech="Campus questions only", elapsed_ms=25)

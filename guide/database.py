@@ -216,7 +216,10 @@ class Store:
                 await session.scalars(
                     select(Document)
                     .where(Document.search.op("@@")(tsquery))
-                    .order_by(func.ts_rank(Document.search, tsquery).desc())
+                    .order_by(
+                        func.ts_rank(func.to_tsvector("english", Document.title), tsquery).desc(),
+                        func.ts_rank(Document.search, tsquery, 32).desc(),
+                    )
                     .limit(limit)
                 )
             ).all()

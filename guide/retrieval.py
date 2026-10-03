@@ -15,6 +15,7 @@ from pypdf import PdfReader
 
 from guide.providers.base import ProviderError
 from guide.settings import ROOT
+from guide.telemetry import trace
 
 SEEDS = json.loads((ROOT / "guide/data/sources.json").read_text())
 ALLOWED_HOSTS = {"www.scu.edu", "libguides.scu.edu", "scudining.cafebonappetit.com"}
@@ -259,8 +260,11 @@ class Retriever:
         async def attempt(url):
             try:
                 async with asyncio.timeout(8):
-                    return await self.fetch(url, fresh)
-            except (UnsafeSource, httpx.HTTPError, TimeoutError, ValueError, ProviderError):
+                    source = await self.fetch(url, fresh)
+                    trace("source_fetched", url=source.url, characters=len(source.text))
+                    return source
+            except (UnsafeSource, httpx.HTTPError, TimeoutError, ValueError, ProviderError) as error:
+                trace("source_error", url=url, reason=type(error).__name__)
                 return None
 
         results = await asyncio.gather(*(attempt(url) for url in list(dict.fromkeys(urls))[:4]))
