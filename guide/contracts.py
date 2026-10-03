@@ -20,19 +20,19 @@ class Selection(Contract):
 class Decision(Contract):
     action: Literal["allow", "clarify", "redirect", "block", "urgent", "private"]
     query: str = Field(max_length=1000)
-    response: str = Field(max_length=600)
+    response: Literal[""]
     fresh: bool
 
 
 class Finding(Contract):
-    text: str = Field(min_length=1, max_length=450)
+    text: str = Field(min_length=1, max_length=250, pattern=r"[.!?]$")
     source_id: int = Field(ge=1)
     quote: str = Field(min_length=10, max_length=450)
 
 
 class Draft(Contract):
     status: Literal["answered", "conflict", "unavailable"]
-    findings: list[Finding] = Field(max_length=4)
+    findings: list[Finding] = Field(max_length=2)
     next_step: str = Field(max_length=250)
 
 

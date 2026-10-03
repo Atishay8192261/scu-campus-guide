@@ -2,7 +2,7 @@
 
 Independent voice assistance for Santa Clara University public information. One voice call can research student, parent and visitor questions, inspect current approved websites when necessary, and return spoken answers with supporting passages.
 
-**Status:** local MVP implementation. Automated enforcement and browser transport tests are available. Live AI verification is pending a funded API account; the initially available OpenAI key returned `429 credit_balance_exhausted`. This is not an official SCU service or a production deployment.
+**Status:** working local voice MVP. OpenAI speech recognition, grounded research, web search and synthesized browser playback were verified live. Automated enforcement and browser integration tests also pass. This is not an official SCU service or a production deployment. Alternative providers still require live account verification.
 
 ## Run locally
 
@@ -46,7 +46,7 @@ Model IDs and fixed prompts are in `guide/data/`. Update models through a review
 
 PostgreSQL full-text search retrieves versioned public documents. Valid cached evidence is reused; time-sensitive questions refresh it. If evidence is missing or the cached draft is insufficient, a single bounded search retrieves approved sources. A draft needs exact source quotes and a separate verification pass before any factual answer can reach voice synthesis. Failure returns an honest fallback.
 
-The default initial API allowance is **$8 reserved**, leaving **$2 of the requested $10 budget** as contingency. Calls stop after 180 seconds or 30 seconds of inactivity, with at most eight questions and two admitted calls per process. Every paid research/search request and voice-call start commits a conservative reservation under a PostgreSQL row lock before contacting the provider. Reservations are never silently reset or refunded on failures. Recorded token usage is separate from reservations: `reserved_usd` is not a measured invoice amount. Rates and plan credits can change; confirm the selected provider's prices before enabling it. Configure provider-side spending limits too.
+The default initial API allowance is **$8 reserved**, leaving **$2 of the requested $10 budget** as contingency. The current local funded run uses a $5 reservation cap. OpenAI-only calls have a reviewed $0.20 audio reservation floor; other speech providers have separate conservative floors in the catalog. The default configurable floor remains $1. Reservations are upper allowances, not actual charges. Calls stop after 180 seconds or 30 seconds of inactivity, with at most eight questions and two admitted calls per process. Every paid research/search request and voice-call start commits a conservative reservation under a PostgreSQL row lock before contacting the provider. Reservations are never silently reset or refunded on failures. Recorded token usage is separate from reservations: `reserved_usd` is not a measured invoice amount. Rates and plan credits can change; confirm the selected provider's prices before enabling it. Configure provider-side spending limits too.
 
 `GET /api/v1/metrics` exposes local aggregate outcomes, p95 research latency, helpfulness counts and reserved allowance. No caller transcript is stored. Changing budget IDs creates a new operator-controlled allowance; do not use that to evade the initial budget.
 
@@ -66,5 +66,7 @@ uv run pip-audit --local --ignore-vuln PYSEC-2026-3740
 ```
 
 The browser test runs a temporary server on port 8101. It uses actual microphone tracks and WebRTC transport with deterministic STT, research and TTS fixtures. It is explicitly **not** live model verification. CI uses PostgreSQL and fixtures, needs no real provider keys, and runs the same checks. The one current dependency exception and deployment boundaries are documented in [SECURITY.md](docs/SECURITY.md).
+
+To run the opt-in, paid live speech test with your configured account: `uv run python -m scripts.live_voice_check`. It synthesizes a test utterance, feeds it through a browser microphone track, and requires a verified source-backed answer and actual received audio energy. It uses the real budget ledger and is deliberately excluded from CI.
 
 See [architecture](docs/ARCHITECTURE.md) and [verification report](docs/BUILD_REPORT.md).

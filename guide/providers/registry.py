@@ -59,6 +59,13 @@ class Registry:
         )
         return Research(self.settings, self.store, self.retriever, model, search)
 
+    def voice_reservation(self, selection):
+        bound = (
+            CATALOG[selection.stt]["stt_call_reserve_usd"]
+            + CATALOG[selection.tts]["tts_call_reserve_usd"]
+        )
+        return max(self.settings.audio_call_reserve_usd, bound)
+
     def speech(self, selection, session):
         from pipecat.services.deepgram.stt import DeepgramSTTService
         from pipecat.services.deepgram.tts import DeepgramHttpTTSService
@@ -104,3 +111,10 @@ class Registry:
                 sample_rate=24000,
             )
         return stt, tts
+
+    async def close_speech(self, selection, stt, tts):
+        for role, service in (("stt", stt), ("tts", tts)):
+            if getattr(selection, role) == "openai" and service is not None:
+                client = getattr(service, "_client", None)
+                if client is not None:
+                    await client.close()

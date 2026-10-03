@@ -28,6 +28,17 @@ class HttpModel:
             self.provider,
         )
         specification = schema.model_json_schema()
+        if schema.__name__ == "Draft":
+            quotes = list(
+                dict.fromkeys(
+                    quote
+                    for source in data.get("sources", [])
+                    for quote in source.get("quotes", [])
+                )
+            )
+            if not quotes:
+                raise ProviderError("No exact evidence passages are available")
+            specification["$defs"]["Finding"]["properties"]["quote"]["enum"] = quotes
         instruction += "\nReturn only JSON matching this schema: " + json.dumps(specification)
         try:
             if self.provider == "openai":
@@ -40,7 +51,14 @@ class HttpModel:
                             {"role": "system", "content": instruction},
                             {"role": "user", "content": encoded},
                         ],
-                        "response_format": {"type": "json_object"},
+                        "response_format": {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": schema.__name__,
+                                "strict": True,
+                                "schema": specification,
+                            },
+                        },
                         "max_tokens": 1000,
                         "temperature": 0,
                         "store": False,

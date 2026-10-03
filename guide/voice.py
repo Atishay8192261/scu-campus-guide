@@ -151,7 +151,7 @@ class Calls:
             settings = self.registry.settings
             await self.registry.store.reserve(
                 settings.budget_id,
-                settings.audio_call_reserve_usd,
+                self.registry.voice_reservation(offer.selection),
                 settings.budget_usd,
                 "voice-call",
             )
@@ -176,6 +176,7 @@ class Calls:
             raise
 
     async def run(self, identity, call, selection):
+        stt = tts = None
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                 stt, tts = self.registry.speech(selection, session)
@@ -230,11 +231,16 @@ class Calls:
                 }
             )
         finally:
-            if call.task:
-                await call.task.cancel()
-            call.connection.send_app_message({"type": "guide", "event": "ended"})
-            await call.connection.disconnect()
-            self.active.pop(identity, None)
+            try:
+                if call.task:
+                    await call.task.cancel()
+                call.connection.send_app_message({"type": "guide", "event": "ended"})
+                await call.connection.disconnect()
+            finally:
+                try:
+                    await self.registry.close_speech(selection, stt, tts)
+                finally:
+                    self.active.pop(identity, None)
 
     async def close(self, identity, token):
         call = self.active.get(identity)

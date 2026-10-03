@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 from guide.contracts import Answer, AnswerStatus, Citation, Decision, Draft, Verification
 from guide.database import BudgetExhausted
 from guide.providers.base import ProviderError
-from guide.retrieval import excerpt
 from guide.settings import ROOT
 
 PROMPTS = json.loads((ROOT / "guide/data/prompts.json").read_text())
@@ -39,6 +38,39 @@ def validate_findings(draft: Draft, sources: list) -> list[Citation]:
             )
         )
     return citations
+
+
+def evidence(source, query):
+    text = " ".join(source.text.split())
+    terms = set(re.findall(r"[a-z]{3,}", query.lower())) - {
+        "santa",
+        "clara",
+        "university",
+        "what",
+        "can",
+        "the",
+        "how",
+    }
+    candidates = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        for start in range(0, len(sentence), 280):
+            quote = sentence[start : start + 320].strip()
+            if len(quote) >= 10:
+                candidates.append(quote)
+    ranked = sorted(
+        enumerate(candidates),
+        key=lambda pair: sum(pair[1].lower().count(term) for term in terms),
+        reverse=True,
+    )
+    chosen = sorted(ranked[:16])
+    quotes = [quote for _, quote in chosen]
+    return {
+        "id": source.id,
+        "title": source.title,
+        "url": source.url,
+        "fetched_at": source.fetched_at.isoformat(),
+        "quotes": quotes,
+    }
 
 
 class Research:
@@ -96,36 +128,14 @@ class Research:
             sources = await self.retriever.fetch_many(urls, fresh=True)
         if not sources:
             return Answer(status=AnswerStatus.UNAVAILABLE, speech=PROMPTS["unavailable"])
-        evidence = [
-            {
-                "id": s.id,
-                "title": s.title,
-                "url": s.url,
-                "fetched_at": s.fetched_at.isoformat(),
-                "text": excerpt(s.text, route.query),
-            }
-            for s in sources
-        ]
-        data = {**context, "sources": evidence}
+        data = {**context, "sources": [evidence(s, route.query) for s in sources]}
         draft = await self.model.generate(PROMPTS["research"], data, Draft)
         if draft.status == "unavailable" and cache_hit:
             urls = await self.search.search(route.query)
             sources = await self.retriever.fetch_many(urls, fresh=True)
             if sources:
                 cache_hit = False
-                data = {
-                    **context,
-                    "sources": [
-                        {
-                            "id": s.id,
-                            "title": s.title,
-                            "url": s.url,
-                            "fetched_at": s.fetched_at.isoformat(),
-                            "text": excerpt(s.text, route.query),
-                        }
-                        for s in sources
-                    ],
-                }
+                data = {**context, "sources": [evidence(s, route.query) for s in sources]}
                 draft = await self.model.generate(PROMPTS["research"], data, Draft)
         if draft.status == "unavailable":
             return Answer(status=AnswerStatus.UNAVAILABLE, speech=PROMPTS["unavailable"])

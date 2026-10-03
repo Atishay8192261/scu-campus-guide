@@ -122,3 +122,38 @@ def test_key_and_elevenlabs_voice_required(settings):
     registry.validate(Selection(tts="elevenlabs"))
     with pytest.raises(ProviderError):
         registry.validate(Selection(research="gemini"))
+
+
+@pytest.mark.parametrize(
+    "stt,tts", [("openai", "openai"), ("deepgram", "deepgram"), ("openai", "elevenlabs")]
+)
+async def test_speech_adapters_construct_without_network_calls(settings, stt, tts):
+    import aiohttp
+    from pydantic import SecretStr
+
+    settings.deepgram_api_key = SecretStr("fixture-only")
+    settings.elevenlabs_api_key = SecretStr("fixture-only")
+    settings.elevenlabs_voice_id = "fixture-voice"
+    registry = Registry(settings, None, None, None)
+    async with aiohttp.ClientSession() as session:
+        recognition, synthesis = registry.speech(Selection(stt=stt, tts=tts), session)
+        assert recognition and synthesis
+        await registry.close_speech(Selection(stt=stt, tts=tts), recognition, synthesis)
+
+
+def test_voice_reservation_cannot_be_lowered_below_provider_bound(settings):
+    settings.audio_call_reserve_usd = 0.2
+    registry = Registry(settings, None, None, None)
+    assert registry.voice_reservation(Selection()) == 0.2
+    assert registry.voice_reservation(Selection(tts="elevenlabs")) >= 1.5
+    assert registry.voice_reservation(Selection(stt="deepgram", tts="deepgram")) >= 0.5
+
+
+async def test_openai_speech_clients_explicitly_closed(settings):
+    from types import SimpleNamespace
+
+    stt = SimpleNamespace(_client=AsyncMock())
+    tts = SimpleNamespace(_client=AsyncMock())
+    await Registry(settings, None, None, None).close_speech(Selection(), stt, tts)
+    stt._client.close.assert_awaited_once()
+    tts._client.close.assert_awaited_once()

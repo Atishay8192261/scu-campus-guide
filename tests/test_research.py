@@ -54,11 +54,7 @@ async def test_policy_actions_cannot_inject_speech(settings, source, action, sta
     r = research(
         settings,
         source,
-        [
-            Decision(
-                action=action, query="", response="malicious provider instructions", fresh=False
-            )
-        ],
+        [Decision(action=action, query="", response="", fresh=False)],
     )
     answer = await r.ask("untrusted question")
     assert answer.status.value == status

@@ -1,7 +1,27 @@
 {
-  "openai": {"research": "gpt-4.1-mini", "stt": "gpt-4o-mini-transcribe", "tts": "gpt-4o-mini-tts", "voice": "alloy"},
-  "gemini": {"research": "gemini-2.5-flash"},
-  "anthropic": {"research": "claude-haiku-4-5-20251001"},
-  "deepgram": {"stt": "nova-3", "tts": "aura-2-asteria-en"},
-  "elevenlabs": {"tts": "eleven_flash_v2_5"}
+  "openai": {
+    "research": "gpt-4.1-mini",
+    "stt": "gpt-4o-mini-transcribe",
+    "tts": "gpt-4o-mini-tts",
+    "voice": "alloy",
+    "search": "gpt-5-mini",
+    "stt_call_reserve_usd": 0.03,
+    "tts_call_reserve_usd": 0.17
+  },
+  "gemini": {
+    "research": "gemini-2.5-flash"
+  },
+  "anthropic": {
+    "research": "claude-haiku-4-5-20251001"
+  },
+  "deepgram": {
+    "stt": "nova-3",
+    "tts": "aura-2-asteria-en",
+    "stt_call_reserve_usd": 0.1,
+    "tts_call_reserve_usd": 0.4
+  },
+  "elevenlabs": {
+    "tts": "eleven_flash_v2_5",
+    "tts_call_reserve_usd": 1.5
+  }
 }

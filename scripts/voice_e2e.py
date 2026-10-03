@@ -145,6 +145,10 @@ async def main():
                     )
                     == 1
                 )
+                await page.wait_for_function(
+                    "async () => { const stats = await pc.getStats(); return [...stats.values()].some(s => s.type === 'inbound-rtp' && s.kind === 'audio' && s.totalAudioEnergy > 0); }",
+                    timeout=10000,
+                )
                 await page.locator("#mute").click()
                 assert await page.locator("#mute").inner_text() == "Unmute"
                 await page.locator("#hangup").click()
