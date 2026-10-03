@@ -105,7 +105,13 @@ def create_app(settings=None):
 
     @app.exception_handler(BudgetExhausted)
     async def budget_error(request, exc):
-        return JSONResponse({"detail": "The current API allowance is exhausted"}, 402)
+        return JSONResponse(
+            {
+                "code": "local_budget_exhausted",
+                "detail": "This app's local spending allowance is fully reserved. This does not indicate your provider balance. The operator must review usage before enabling more calls.",
+            },
+            402,
+        )
 
     @app.get("/api/v1/health")
     async def health(request: Request):

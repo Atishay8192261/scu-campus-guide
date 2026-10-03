@@ -98,6 +98,23 @@ async def test_call_close_requires_ownership_token(api):
     assert (await client.post("/api/v1/calls/unknown/close", json={"token": 1})).status_code == 422
 
 
+async def test_call_budget_exhaustion_is_local_and_prevents_negotiation(api):
+    client, app = api
+    settings = app.state.registry.settings
+    await app.state.store.reserve(
+        settings.budget_id, settings.budget_usd, settings.budget_usd, "test"
+    )
+    response = await client.post(
+        "/api/v1/offer", json={"sdp": "v=0\r\ns=budget-test\r\nt=0 0\r\n", "type": "offer"}
+    )
+    assert response.status_code == 402
+    assert response.json()["code"] == "local_budget_exhausted"
+    assert "does not indicate your provider balance" in response.json()["detail"]
+    assert (await app.state.store.metrics(settings.budget_id))[
+        "reserved_usd"
+    ] == settings.budget_usd
+
+
 async def test_response_security_headers(api):
     client, app = api
     response = await client.get("/")

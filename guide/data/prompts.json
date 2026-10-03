@@ -1,7 +1,7 @@
 {
   "greeting": "Hi, I'm an independent AI guide for Santa Clara University. What can I help you find?",
   "unavailable": "I couldn't verify that reliably from current public sources. Please check the responsible SCU office. You can also ask me to help find the right office.",
-  "budget": "The service has reached its current usage allowance. Please try again after the operator replenishes it.",
+  "budget": "This service's local spending allowance is fully reserved. The operator needs to review usage before enabling more questions. This does not indicate your provider balance.",
   "redirect": "I help with Santa Clara University and related campus questions. What would you like to know about SCU?",
   "blocked": "I can't help with instructions that would harm someone or bypass security. I can help find SCU safety or support resources.",
   "urgent": "If you or someone else is in immediate danger in the United States, call 911 now. If you are thinking about suicide or need crisis support, call or text 988. I cannot dispatch help or monitor this situation.",
