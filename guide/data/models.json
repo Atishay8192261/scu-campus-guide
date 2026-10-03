@@ -6,7 +6,11 @@
     "voice": "alloy",
     "search": "gpt-5-mini",
     "stt_call_reserve_usd": 0.03,
-    "tts_call_reserve_usd": 0.17
+    "tts_call_reserve_usd": 0.17,
+    "research_usd_per_million_tokens": {
+      "input": 0.4,
+      "output": 1.6
+    }
   },
   "gemini": {
     "research": "gemini-2.5-flash"

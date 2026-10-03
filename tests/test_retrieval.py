@@ -1,9 +1,18 @@
+from datetime import datetime
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
-from guide.retrieval import Retriever, UnsafeSource, approved_url, excerpt, extract
+from guide.retrieval import (
+    Retriever,
+    UnsafeSource,
+    approved_url,
+    calendar_text,
+    excerpt,
+    extract,
+    related_links,
+)
 
 
 @pytest.mark.parametrize(
@@ -94,3 +103,28 @@ def test_scu_content_outside_main_is_preserved():
         "text/html",
     )
     assert "valid ACCESS card" in body and title == "Hours"
+
+
+def test_related_official_schedule_is_discoverable_without_arbitrary_hosts():
+    body = b'<a href="https://libguides.scu.edu/libraryhours">New library hours</a><a href="https://evil.test/libraryhours">Library hours</a>'
+    assert related_links(body, "https://www.scu.edu/library/hours/", "SCU library hours") == [
+        "https://libguides.scu.edu/libraryhours"
+    ]
+
+
+def test_calendar_retains_full_dates_and_excludes_prior_year():
+    def table(year):
+        return f'<table><span class="s-lc-mhw-header-date">October {year}</span><td class="s-lc-mhw-day"><span class="s-lc-mhw-day-l">3</span><div class="s-lc-mhw-loc">Santa Clara University Library <span>10am – 10pm</span></div></td></table>'
+
+    text = calendar_text((table(2025) + table(2026)).encode(), datetime(2026, 10, 3))
+    assert "October 3, 2026" in text and "10am – 10pm" in text
+    assert "2025" not in text
+
+
+def test_inline_times_and_venue_lists_survive_extraction():
+    _, text = extract(
+        b"<body><p>Monday: <strong>8 a.m.</strong> to midnight</p><footer><ul><li>Marketplace - Benson Memorial</li></ul></footer></body>",
+        "text/html",
+    )
+    assert "Monday: 8 a.m. to midnight" in text
+    assert "Marketplace - Benson Memorial" in text

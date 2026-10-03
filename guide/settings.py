@@ -20,11 +20,12 @@ class Settings(BaseSettings):
     max_call_seconds: int = Field(default=180, ge=30, le=180)
     max_concurrent_calls: int = Field(default=2, ge=1, le=10)
     idle_seconds: int = Field(default=30, ge=10, le=120)
-    research_seconds: int = Field(default=20, ge=5, le=30)
+    research_seconds: int = Field(default=30, ge=5, le=45)
     provider_timeout_seconds: int = Field(default=10, ge=1, le=15)
     provider_call_reserve_usd: float = Field(default=0.06, gt=0, le=1)
     audio_call_reserve_usd: float = Field(default=0.2, ge=0.2, le=5)
     conversation_budget_usd: float = Field(default=0.60, gt=0, le=0.60)
+    debug_telemetry: bool = True
     admin_token: SecretStr = SecretStr("")
     openai_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="OPENAI_API_KEY")
     gemini_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="GEMINI_API_KEY")

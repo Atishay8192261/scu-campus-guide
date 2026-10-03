@@ -31,6 +31,7 @@ def research(settings, source, responses):
     store.retrieve.return_value = [source]
     retriever = AsyncMock()
     retriever.fetch_many.return_value = [source]
+    retriever.discover.return_value = []
     search = AsyncMock()
     search.search.return_value = [source.url]
     return Research(settings, store, retriever, model, search)
@@ -107,10 +108,35 @@ async def test_insufficient_cache_searches_once(settings, source):
     r.search.search.assert_awaited_once()
 
 
+async def test_insufficient_fresh_page_discovers_related_evidence(settings, source):
+    r = research(
+        settings,
+        source,
+        [
+            route(True),
+            Draft(status="unavailable", findings=[], next_step=""),
+            draft(source),
+            Verification(supported=True, safe=True),
+        ],
+    )
+    r.retriever.discover.return_value = [source]
+    answer = await r.ask("library hours")
+    assert answer.status == "answered"
+    r.retriever.discover.assert_awaited_once()
+    r.search.search.assert_not_called()
+
+
 @pytest.mark.parametrize("supported,safe", [(False, True), (True, False), (False, False)])
 async def test_unverified_answer_never_released(settings, source, supported, safe):
     r = research(
-        settings, source, [route(), draft(source), Verification(supported=supported, safe=safe)]
+        settings,
+        source,
+        [
+            route(),
+            draft(source),
+            Verification(supported=supported, safe=safe),
+            Draft(status="unavailable", findings=[], next_step=""),
+        ],
     )
     answer = await r.ask("question")
     assert answer.status == "unavailable" and not answer.citations
@@ -144,3 +170,30 @@ def test_unquoted_action_and_empty_answer_rejected(source):
         validate_findings(bad, [source])
     with pytest.raises(ProviderError):
         validate_findings(Draft(status="answered", findings=[], next_step=""), [source])
+
+
+def test_specific_calendar_date_cannot_be_supported_by_different_day(source):
+    source.text = "October 17, 2026: Library closes at 10pm."
+    bad = Draft(
+        status="answered",
+        findings=[
+            Finding(
+                text="On October 3, 2026, the library closes at 10pm.",
+                source_id=source.id,
+                quote=source.text,
+            )
+        ],
+        next_step="",
+    )
+    with pytest.raises(ProviderError):
+        validate_findings(bad, [source])
+
+
+async def test_verification_never_receives_unrelated_evidence(settings, source):
+    r = research(
+        settings, source, [route(), draft(source), Verification(supported=True, safe=True)]
+    )
+    await r.ask("parent billing")
+    data = r.model.generate.call_args.args[1]
+    assert "sources" not in data and "draft" not in data
+    assert data["finding"]["quote"] == draft(source).findings[0].quote

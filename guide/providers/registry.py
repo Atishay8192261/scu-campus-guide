@@ -57,7 +57,9 @@ class Registry:
         search = (OpenAISearch if selection.search == "openai" else TavilySearch)(
             self.settings, self.client, self.store
         )
-        return Research(self.settings, self.store, self.retriever, model, search)
+        research = Research(self.settings, self.store, self.retriever, model, search)
+        research.providers = selection.model_dump()
+        return research
 
     def voice_reservation(self, selection):
         bound = (

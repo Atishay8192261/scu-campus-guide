@@ -127,6 +127,7 @@ def create_app(settings=None):
             "default_selection": settings.production_selection.model_dump(),
             "max_call_seconds": settings.max_call_seconds,
             "ice_servers": settings.ice_servers,
+            "debug_telemetry": settings.debug_telemetry,
         }
 
     @app.post("/api/v1/ask")

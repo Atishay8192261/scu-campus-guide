@@ -2,6 +2,7 @@ import asyncio
 import audioop
 import io
 import json
+import os
 import tempfile
 import wave
 from pathlib import Path
@@ -37,7 +38,10 @@ async def main():
                 json={
                     "model": MODELS["openai"]["tts"],
                     "voice": MODELS["openai"]["voice"],
-                    "input": "How can parents find billing and financial aid information at Santa Clara University?",
+                    "input": os.environ.get(
+                        "VOICE_TEST_QUESTION",
+                        "How can parents find billing and financial aid information at Santa Clara University?",
+                    ),
                     "response_format": "wav",
                 },
             )

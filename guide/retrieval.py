@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
+from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup
@@ -16,7 +17,7 @@ from guide.providers.base import ProviderError
 from guide.settings import ROOT
 
 SEEDS = json.loads((ROOT / "guide/data/sources.json").read_text())
-ALLOWED_HOSTS = {"www.scu.edu", "scudining.cafebonappetit.com"}
+ALLOWED_HOSTS = {"www.scu.edu", "libguides.scu.edu", "scudining.cafebonappetit.com"}
 DENIED_PATHS = (
     "/terminalfour",
     "/util",
@@ -73,11 +74,62 @@ def extract(body: bytes, content_type: str) -> tuple[str, str]:
         raise UnsafeSource("Unsupported source content type")
     soup = BeautifulSoup(body, "html.parser")
     title = soup.title.get_text(" ", strip=True) if soup.title else "SCU public source"
-    for element in soup.select("head, title, script, style, nav, header, footer, noscript, form"):
+    for element in soup.select("head, title, script, style, nav, header, noscript, form"):
         element.decompose()
+    for element in soup.select("p, li, tr, h1, h2, h3, h4"):
+        if not element.find(["p", "li", "tr", "h1", "h2", "h3", "h4"]):
+            element.string = element.get_text(" ", strip=True)
     main = soup.body or soup
     text = main.get_text("\n", strip=True)
     return title, re.sub(r"\n{3,}", "\n\n", text)[:60000]
+
+
+def related_links(body: bytes, base: str, query: str) -> list[str]:
+    soup = BeautifulSoup(body, "html.parser")
+    terms = set(re.findall(r"[a-z]{3,}", query.lower())) - {
+        "santa",
+        "clara",
+        "university",
+        "the",
+        "what",
+        "scu",
+    }
+    ranked = {}
+    for anchor in soup.select("a[href]"):
+        try:
+            url = approved_url(urljoin(base, anchor["href"]))
+        except (UnsafeSource, ValueError):
+            continue
+        if url == base:
+            continue
+        label = (anchor.get_text(" ", strip=True) + " " + url).lower()
+        score = sum(term in label for term in terms)
+        if score:
+            ranked[url] = max(ranked.get(url, 0), score)
+    return sorted(ranked, key=ranked.get, reverse=True)[:4]
+
+
+def calendar_text(body: bytes, now: datetime) -> str:
+    soup = BeautifulSoup(body, "html.parser")
+    lines = []
+    for table in soup.select("table"):
+        heading = table.select_one(".s-lc-mhw-header-date")
+        if not heading:
+            continue
+        try:
+            month = datetime.strptime(heading.get_text(" ", strip=True), "%B %Y")
+        except ValueError:
+            continue
+        if not 0 <= (month.year - now.year) * 12 + month.month - now.month < 5:
+            continue
+        for cell in table.select("td.s-lc-mhw-day"):
+            day = cell.select_one(".s-lc-mhw-day-l")
+            if not day:
+                continue
+            date = f"{month.strftime('%B')} {day.get_text(strip=True)}, {month.year}"
+            for location in cell.select(".s-lc-mhw-loc"):
+                lines.append(date + ": " + location.get_text(" ", strip=True) + ".")
+    return "\n".join(lines)
 
 
 def excerpt(body: str, query: str, limit: int = 6000) -> str:
@@ -107,6 +159,43 @@ class Retriever:
         self.client, self.store = client, store
         self.robots: dict[str, RobotFileParser] = {}
         self.gate = asyncio.Semaphore(2)
+        self.links: dict[str, bytes] = {}
+
+    async def embedded_calendar(self, body: bytes, url: str) -> str:
+        if urlsplit(url).hostname != "www.scu.edu" or not urlsplit(url).path.startswith(
+            "/library/"
+        ):
+            return ""
+        html = body.decode("utf-8", errors="replace")
+        if "api3.libcal.com/js/hours_month.js" not in html:
+            return ""
+        match = re.search(r"iid:\s*(\d+),\s*lid:\s*(\d+)", html)
+        if not match:
+            return ""
+        await public_dns("api3.libcal.com")
+        endpoint = f"https://api3.libcal.com/api_hours_month.php?iid={match[1]}&lid={match[2]}&months=5&show_past=1"
+        async with self.client.stream("GET", endpoint, follow_redirects=False) as response:
+            if response.status_code != 200:
+                return ""
+            content = bytearray()
+            async for chunk in response.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > 2_000_000:
+                    raise UnsafeSource("Embedded calendar exceeded extraction limit")
+        schedule = calendar_text(bytes(content), datetime.now(ZoneInfo("America/Los_Angeles")))
+        return (
+            "\nOfficial embedded calendar from " + endpoint + ":\n" + schedule if schedule else ""
+        )
+
+    async def discover(self, sources, query):
+        urls = []
+        for source in sources[:2]:
+            if source.url not in self.links:
+                await self.fetch_many([source.url], fresh=True)
+            body = self.links.get(source.url)
+            if body:
+                urls.extend(related_links(body, source.url, query))
+        return await self.fetch_many(urls, fresh=True)
 
     async def permitted(self, url: str):
         host = urlsplit(url).hostname
@@ -157,6 +246,11 @@ class Retriever:
                     )
                 if len(text.strip()) < 80:
                     raise UnsafeSource("Source has insufficient readable content")
+                if "html" in response.headers.get("content-type", ""):
+                    self.links[url] = bytes(body)
+                    text += await self.embedded_calendar(bytes(body), current)
+                    if len(self.links) > 100:
+                        self.links.pop(next(iter(self.links)))
                 ttl = next((s["ttl_seconds"] for s in SEEDS if s["url"] == url), 86400)
                 return await self.store.save_source(url, title, text, ttl)
             raise UnsafeSource("Source redirected too often")

@@ -22,6 +22,7 @@ def settings(monkeypatch):
         ),
         budget_id="test",
         research_seconds=5,
+        debug_telemetry=False,
     )
 
 

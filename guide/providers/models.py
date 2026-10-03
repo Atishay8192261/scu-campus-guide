@@ -5,6 +5,7 @@ from pydantic import BaseModel, ValidationError
 
 from guide.providers.base import ProviderError
 from guide.settings import ROOT, Settings
+from guide.telemetry import trace
 
 MODELS = json.loads((ROOT / "guide/data/models.json").read_text())
 
@@ -21,25 +22,36 @@ class HttpModel:
         encoded = json.dumps(data, ensure_ascii=False)
         if len(encoded) > 35000:
             raise ProviderError("Research context exceeded its limit")
+        specification = schema.model_json_schema()
+        if schema.__name__ == "Draft":
+            sources = data.get("sources", [])
+            if not sources or not any(source.get("quotes") for source in sources):
+                raise ProviderError("No exact evidence passages are available")
+            finding = specification["$defs"]["Finding"]
+            del finding["properties"]["quote"]
+            finding["properties"]["quote_index"] = {"type": "integer", "minimum": 0, "maximum": 15}
+            finding["required"] = ["text", "source_id", "quote_index"]
+            instruction += " Select quote_index as the ZERO-BASED index of the exact supporting entry in that source's quotes array. Do not return a quote string."
+        instruction += "\nReturn only JSON matching this schema: " + json.dumps(specification)
+        allowance = self.settings.provider_call_reserve_usd
+        rates = MODELS[self.provider].get("research_usd_per_million_tokens")
+        if rates:
+            # UTF-8 bytes bound BPE tokens; count the schema in both API fields.
+            input_bound = (
+                len((instruction + encoded + json.dumps(specification)).encode("utf-8")) + 512
+            )
+            allowance = (
+                round((input_bound * rates["input"] + 1000 * rates["output"]) / 1_000_000, 6)
+                + 0.000001
+            )
+            if allowance > self.settings.provider_call_reserve_usd:
+                raise ProviderError("Model request exceeded its cost allowance")
         reservation = await self.store.reserve(
             self.settings.budget_id,
-            self.settings.provider_call_reserve_usd,
+            allowance,
             self.settings.budget_usd,
             self.provider,
         )
-        specification = schema.model_json_schema()
-        if schema.__name__ == "Draft":
-            quotes = list(
-                dict.fromkeys(
-                    quote
-                    for source in data.get("sources", [])
-                    for quote in source.get("quotes", [])
-                )
-            )
-            if not quotes:
-                raise ProviderError("No exact evidence passages are available")
-            specification["$defs"]["Finding"]["properties"]["quote"]["enum"] = quotes
-        instruction += "\nReturn only JSON matching this schema: " + json.dumps(specification)
         try:
             if self.provider == "openai":
                 response = await self.client.post(
@@ -106,7 +118,26 @@ class HttpModel:
                 raise ProviderError("Unsupported model provider")
             usage = payload.get("usage", payload.get("usageMetadata", {}))
             await self.store.usage(reservation, {"model": self.model, "tokens": usage})
-            return schema.model_validate_json(content)
+            if schema.__name__ == "Draft":
+                wire = json.loads(content)
+                by_id = {source["id"]: source for source in data["sources"]}
+                for finding in wire["findings"]:
+                    index = finding.pop("quote_index")
+                    if type(index) is not int or index < 0:
+                        raise ValueError("Invalid evidence index")
+                    finding["quote"] = by_id[finding["source_id"]]["quotes"][index]
+                content = json.dumps(wire)
+            result = schema.model_validate_json(content)
+            trace(
+                "model",
+                provider=self.provider,
+                model=self.model,
+                contract=schema.__name__,
+                reserved_usd=allowance,
+                tokens=usage,
+                result=result.model_dump(),
+            )
+            return result
         except (
             httpx.HTTPError,
             ValidationError,
@@ -115,4 +146,14 @@ class HttpModel:
             TypeError,
             ValueError,
         ) as error:
+            trace(
+                "model_error",
+                provider=self.provider,
+                model=self.model,
+                contract=schema.__name__,
+                error=type(error).__name__,
+                http_status=error.response.status_code
+                if isinstance(error, httpx.HTTPStatusError)
+                else None,
+            )
             raise ProviderError("Provider request failed or returned invalid data") from error

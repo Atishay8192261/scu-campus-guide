@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from guide.contracts import Decision, Selection
+from guide.contracts import Decision, Draft, Selection
 from guide.database import BudgetExhausted
 from guide.providers.base import ProviderError
 from guide.providers.models import HttpModel
@@ -79,6 +79,64 @@ async def test_budget_denial_prevents_network(settings):
         with pytest.raises(BudgetExhausted):
             await HttpModel("openai", settings, client, store).generate("test", {}, Decision)
     assert not requests
+
+
+async def test_openai_request_allowance_uses_bounded_size_not_six_cent_floor(settings):
+    store = AsyncMock()
+    expected = {"action": "redirect", "query": "", "response": "", "fresh": False}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, json={"choices": [{"message": {"content": json.dumps(expected)}}]}
+            )
+        )
+    ) as client:
+        await HttpModel("openai", settings, client, store).generate(
+            "classify", {"question": "SCU library"}, Decision
+        )
+    amount = store.reserve.call_args.args[1]
+    assert 0.0016 < amount < 0.01
+
+
+async def test_evidence_index_attaches_exact_quote_containing_quotation_marks(settings):
+    quote = 'The dining hall is called "The Marketplace".'
+
+    def handler(request):
+        body = json.loads(request.content)
+        properties = body["response_format"]["json_schema"]["schema"]["$defs"]["Finding"][
+            "properties"
+        ]
+        assert "quote" not in properties and "quote_index" in properties
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "status": "answered",
+                                    "findings": [
+                                        {
+                                            "text": "The dining hall is The Marketplace.",
+                                            "source_id": 1,
+                                            "quote_index": 0,
+                                        }
+                                    ],
+                                    "next_step": "",
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        answer = await HttpModel("openai", settings, client, AsyncMock()).generate(
+            "answer", {"sources": [{"id": 1, "quotes": [quote]}]}, Draft
+        )
+    assert answer.findings[0].quote == quote
 
 
 async def test_search_contract_and_url_extraction(settings):
